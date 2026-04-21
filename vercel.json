@@ -1,0 +1,9 @@
+{
+  "rewrites": [
+    { "source": "/api/youtube", "destination": "/api/download" },
+    { "source": "/api/instagram", "destination": "/api/download" },
+    { "source": "/api/tiktok", "destination": "/api/download" },
+    { "source": "/api/facebook", "destination": "/api/download" },
+    { "source": "/api/allsocial", "destination": "/api/download" }
+  ]
+}
