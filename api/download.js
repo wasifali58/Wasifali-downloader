@@ -1,8 +1,7 @@
-// api/download.js
 const axios = require("axios");
 
 // ============================================
-// Only the three APIs specified by the user
+// User-specified APIs (Only these three)
 // ============================================
 const APIS = {
     sbsakib: "https://sbsakib.eu.cc/api/All_v/?download={url}",
@@ -18,11 +17,11 @@ const PLATFORM_SOURCES = {
     facebook: [APIS.telesocial, APIS.nepcoder]
 };
 
-// All-in-One try order (sbsakib first because it handles YouTube best)
+// All-in-One try order (sbsakib first for YouTube)
 const ALL_SOURCES = [APIS.sbsakib, APIS.telesocial, APIS.nepcoder];
 
 // ============================================
-// Remove any foreign credits from the data
+// Remove foreign credits and clean data
 // ============================================
 function stripForeignCredits(obj) {
     if (!obj || typeof obj !== 'object') return obj;
@@ -40,6 +39,38 @@ function stripForeignCredits(obj) {
 }
 
 // ============================================
+// Extract video URL from any response format
+// ============================================
+function extractVideoUrl(data) {
+    // Direct video URL
+    if (typeof data === 'string' && (data.includes('.mp4') || data.includes('video'))) return data;
+    
+    // Common fields
+    const videoFields = ['video', 'url', 'download_url', 'downloadUrl', 'video_url', 'videoUrl', 'source', 'play'];
+    for (const field of videoFields) {
+        if (data[field] && typeof data[field] === 'string') return data[field];
+    }
+    
+    // Links array (sbsakib format)
+    if (data.links && Array.isArray(data.links)) {
+        const videoLink = data.links.find(l => l.type === 'video' || l.resolution);
+        if (videoLink) return videoLink.download_url || videoLink.url;
+    }
+    
+    // Media array (telesocial/nepcoder format)
+    if (data.media && Array.isArray(data.media)) {
+        const videoItem = data.media.find(m => m.type === 'video' || m.url?.includes('.mp4'));
+        if (videoItem) return videoItem.url || videoItem.video;
+    }
+    
+    // Nested data
+    if (data.data) return extractVideoUrl(data.data);
+    if (data.result) return extractVideoUrl(data.result);
+    
+    return null;
+}
+
+// ============================================
 // Try fetching from a single API
 // ============================================
 async function tryFetch(apiTemplate, videoUrl) {
@@ -47,14 +78,26 @@ async function tryFetch(apiTemplate, videoUrl) {
     const response = await axios.get(apiUrl, { timeout: 15000 });
     let data = response.data;
     
-    // Unwrap nested data if present
+    // Unwrap nested data
     if (data && typeof data === 'object') {
         if (data.data && typeof data.data === 'object') data = data.data;
         if (data.status === "success" && data.data) data = data.data;
         if (data.success === true && data.data) data = data.data;
+        if (data.result) data = data.result;
     }
     
-    return stripForeignCredits(data);
+    // Clean data
+    data = stripForeignCredits(data);
+    
+    // Ensure video URL is present
+    const videoUrl_extracted = extractVideoUrl(data);
+    if (!videoUrl_extracted) return null;
+    
+    // Return with guaranteed video field
+    return {
+        ...data,
+        video: videoUrl_extracted
+    };
 }
 
 // ============================================
@@ -63,7 +106,8 @@ async function tryFetch(apiTemplate, videoUrl) {
 async function fetchFromSources(sources, videoUrl) {
     for (const source of sources) {
         try {
-            return await tryFetch(source, videoUrl);
+            const result = await tryFetch(source, videoUrl);
+            if (result) return result;
         } catch (err) {
             // Continue to next source
         }
@@ -82,7 +126,6 @@ export default async function handler(req, res) {
 
     const url = req.query.url;
     
-    // No URL provided
     if (!url) {
         return res.status(400).json({
             success: false,
@@ -112,7 +155,6 @@ export default async function handler(req, res) {
         });
     }
 
-    // Success response — only the original data + our credits
     const response = {
         success: true,
         ...data,
